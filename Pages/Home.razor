@@ -1,7 +1,1032 @@
-﻿@page "/"
+﻿@page "/home"
+@using WeatherFrontend.Models
+@using Microsoft.AspNetCore.WebUtilities
+@inject WeatherService WeatherService
+@inject IJSRuntime JSRuntime
+@using MudBlazor
+@inherits LayoutComponentBase
+@using WeatherFrontend.Services;
+@inject IFavoriteCityService FavoriteCityService
+@inject AuthService AuthService
+@inject ISnackbar Snackbar
+@inject NavigationManager NavigationManager
+@inject UserHistoryService UserHistoryService
+@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
+@inject WeatherAlertService WeatherAlertService
 
-<PageTitle>Home</PageTitle>
+<MudThemeProvider />
+<MudSnackbarProvider />
 
-<h1>Hello, world!</h1>
+<div class="weather-app-container">
+    <MudContainer MaxWidth="MaxWidth.Large">
+        <MudGrid Justify="Justify.Center" AlignItems="AlignItems.Center" Class="mb-6 moved-up-search">
+            <MudItem xs="12" sm="10" md="8" lg="6">
+                <MudTextField T="string"
+                              Label="Enter City Name"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              Adornment="Adornment.End"
+                              AdornmentColor="Color.Primary"
+                              Variant="Variant.Outlined"
+                              @bind-Value="searchQuery"
+                              Class="search-input"
+                              FullWidth="true"
+                              DebounceInterval="300"
+                              OnAdornmentClick="SearchCity"
+                              OnKeyDown="@(e => { if (e.Key == "Enter") SearchCity(); })" />
+            </MudItem>
+        </MudGrid>
 
-Welcome to your new app.
+        <div class="moved-up-weather">
+            @if (IsLoading)
+            {
+                <div class="loading-container">
+                    <MudProgressCircular Color="Color.Primary" Size="Size.Large" Indeterminate="true" />
+                    <MudText Typo="Typo.body1" Class="mt-2">Fetching weather data...</MudText>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(locationError))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="rounded-lg error-alert">
+                    <MudText>@locationError</MudText>
+                    <MudButton Variant="Variant.Text" Color="Color.Inherit" OnClick="GetCurrentLocationWeather" Class="ml-auto">
+                        Try Again
+                    </MudButton>
+                </MudAlert>
+            }
+            else if (CurrentWeather != null)
+            {
+                <MudPaper Class="weather-card" Elevation="0">
+                    <!-- City Header with Background -->
+                    <div class="city-header">
+                        <div class="city-header-content">
+                            <div>
+                                <MudText Typo="Typo.h4" Class="city-name">
+                                    @CurrentWeather.City
+                                </MudText>
+                                <MudText Typo="Typo.body1" Class="city-date">
+                                    @DateTime.Now.ToString("dddd, MMMM d, yyyy")
+                                </MudText>
+                            </div>
+                            <!-- Add favorite button here -->
+                            <div class="favorite-button-container">
+                                <MudIconButton Icon="@GetFavoriteIcon()"
+                                               Color="@GetFavoriteColor()"
+                                               Size="Size.Medium"
+                                               OnClick="ToggleFavoriteAsync"
+                                               Disabled="@(isProcessing || !isAuthenticated)" />
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Main Weather Details -->
+                    <MudGrid Class="weather-details-container">
+                        <!-- Left Section: Main Temperature -->
+                        <MudItem xs="12" md="4">
+                            <div class="main-temp-card">
+                                <div class="main-temp-content">
+                                    <!-- Main Temperature Value -->
+                                    <MudText Typo="Typo.h1" Class="main-temp">
+                                        @CurrentWeather.Temperature<span class="temp-unit"></span>
+                                    </MudText>
+                                    <!-- Label with Temperature Symbol -->
+                                    <MudText Typo="Typo.subtitle1" Class="temp-label">
+                                        🌡️ Temperature
+                                    </MudText>
+                                </div>
+                            </div>
+                        </MudItem>
+                        <!-- Right Section: Humidity, Wind Speed, Weather Condition -->
+                        <MudItem xs="12" md="8">
+                            <MudGrid Justify="Justify.Center">
+                                <MudItem xs="12" sm="4">
+                                    <div class="weather-detail-card">
+                                        <MudIcon Icon="@Icons.Material.Filled.WaterDrop" Size="Size.Large" Class="detail-icon" />
+                                        <MudText Typo="Typo.subtitle1" Class="detail-label">Humidity</MudText>
+                                        <MudText Typo="Typo.h6" Class="detail-value">
+                                            @CurrentWeather.Humidity% @GetWeatherEmoji("humidity")
+                                        </MudText>
+                                    </div>
+                                </MudItem>
+                                <MudItem xs="12" sm="4">
+                                    <div class="weather-detail-card">
+                                        <MudIcon Icon="@Icons.Material.Filled.Air" Size="Size.Large" Class="detail-icon" />
+                                        <MudText Typo="Typo.subtitle1" Class="detail-label">Wind Speed</MudText>
+                                        <MudText Typo="Typo.h6" Class="detail-value">
+                                            @CurrentWeather.WindSpeed km/h @GetWeatherEmoji("wind")
+                                        </MudText>
+                                    </div>
+                                </MudItem>
+                                <MudItem xs="12" sm="4">
+                                    <div class="weather-detail-card">
+                                        <MudIcon Icon="@Icons.Material.Filled.AcUnit" Size="Size.Large" Class="detail-icon" />
+                                        <MudText Typo="Typo.subtitle1" Class="detail-label">Weather</MudText>
+                                        <MudText Typo="Typo.h6" Class="detail-value">
+                                            @CurrentWeather.Weather @GetWeatherEmoji(CurrentWeather.Weather)
+                                        </MudText>
+                                    </div>
+                                </MudItem>
+                            </MudGrid>
+                        </MudItem>
+                    </MudGrid>
+                    <!-- Location and Forecast Button -->
+                    <MudGrid Class="actions-container">
+                        <MudItem xs="12">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.MyLocation"
+                                       OnClick="GetCurrentLocationWeather"
+                                       Size="Size.Small"
+                                       Class="location-button">
+                                Use My Location
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Secondary"
+                                       StartIcon="@Icons.Material.Filled.CalendarMonth"
+                                       OnClick="ViewForecast"
+                                       Size="Size.Small"
+                                       Class="forecast-button ml-2">
+                                View Forecast
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Info"
+                                       StartIcon="@Icons.Material.Filled.History"
+                                       OnClick="ViewSearchHistory"
+                                       Size="Size.Small"
+                                       Class="history-button ml-2">
+                                View History
+                            </MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+
+                @if (showForecast && ForecastWeather != null)
+                {
+                    <MudPaper Class="forecast-card mt-4" Elevation="0">
+                        <MudText Typo="Typo.h5" Class="px-4 pt-4">5-Day Forecast for @CurrentWeather.City</MudText>
+                        <MudDivider Class="my-2" />
+                        <MudGrid Class="px-4 pb-4">
+                            @foreach (var day in ForecastWeather)
+                            {
+                                <MudItem xs="12" sm="6" md="4" lg="2">
+                                    <div class="forecast-day-card">
+                                        <MudText Typo="Typo.subtitle1" Class="forecast-day">
+                                            @DateTime.Parse(day.Date).ToString("ddd, MMM d")
+                                        </MudText>
+                                        <div class="forecast-temp-container">
+                                            <MudText Typo="Typo.h5" Class="forecast-temp">
+                                                @day.Temperature°
+                                            </MudText>
+                                            <span class="forecast-emoji">@GetWeatherEmoji(day.Weather)</span>
+                                        </div>
+                                        <MudText Typo="Typo.body2" Class="forecast-condition">
+                                            @day.Weather
+                                        </MudText>
+                                    </div>
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    </MudPaper>
+
+                    <!-- Improved Forecast Charts -->
+                    <MudPaper Class="forecast-charts mt-4" Elevation="0">
+                        <MudText Typo="Typo.h5" Class="px-4 pt-4">Weather Forecast Charts for @CurrentWeather.City</MudText>
+                        <MudDivider Class="my-2" />
+                        <MudGrid Class="px-4 pb-4">
+                            <!-- Temperature Chart -->
+                            <MudItem xs="12" md="6">
+                                <MudChart ChartType="ChartType.Line" ChartSeries="@temperatureSeries"
+                                          XAxisLabels="@forecastDates" Width="100%" Height="300px"
+                                          ChartOptions="@temperatureOptions">
+                                    <CustomGraphics>
+                                        <text class="mud-chart-title" x="20" y="20">Temperature (°C)</text>
+                                    </CustomGraphics>
+                                </MudChart>
+                            </MudItem>
+                            <!-- Humidity Chart -->
+                            <MudItem xs="12" md="6">
+                                <MudChart ChartType="ChartType.Line" ChartSeries="@humiditySeries"
+                                          XAxisLabels="@forecastDates" Width="100%" Height="300px"
+                                          ChartOptions="@humidityOptions">
+                                    <CustomGraphics>
+                                        <text class="mud-chart-title" x="20" y="20">Humidity (%)</text>
+                                    </CustomGraphics>
+                                </MudChart>
+                            </MudItem>
+                            @* <!-- Combined 5-Day Forecast Chart --> *@
+                            @* <MudItem xs="12"> *@
+                            @*     <MudChart ChartType="ChartType.Line" ChartSeries="@combinedSeries" *@
+                            @*               XAxisLabels="@forecastDates" Width="100%" Height="350px" *@
+                            @*               ChartOptions="@combinedOptions"> *@
+                            @*         <CustomGraphics> *@
+                            @*             <text class="mud-chart-title" x="20" y="20">5-Day Forecast</text> *@
+                            @*         </CustomGraphics> *@
+                            @*     </MudChart> *@
+                            @* </MudItem> *@
+                        </MudGrid>
+                    </MudPaper>
+                }
+            }
+        </div>
+    </MudContainer>
+</div>
+
+<style>
+    /* Enhanced Weather App Styling */
+    .weather-app-container {
+        min-height: 100vh;
+        padding: 5rem 1rem;
+        @* background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); *@
+        font-family: 'Poppins', sans-serif;
+    }
+
+    .moved-up-search {
+        margin-top: -40px;
+    }
+
+    .moved-up-weather {
+        margin-top: -30px;
+    }
+
+    .search-input {
+        margin-bottom: 0;
+        background-color: rgba(255, 255, 255, 0.9);
+        border-radius: 12px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s ease;
+    }
+
+        .search-input:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 25px rgba(0, 0, 0, 0.08);
+        }
+
+        .search-input :deep(.mud-input) {
+            border-radius: 12px !important;
+        }
+
+        .search-input :deep(.mud-input-outlined-border) {
+            border-radius: 12px !important;
+        }
+
+        .search-input :deep(.mud-input-adornment-end) {
+            cursor: pointer;
+        }
+
+    .loading-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 5rem 0;
+        background-color: transparent;
+    }
+
+    .error-alert {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-radius: 16px !important;
+        box-shadow: 0 10px 20px rgba(235, 70, 70, 0.15);
+    }
+
+    .weather-card {
+        border-radius: 28px !important;
+        overflow: hidden;
+        background-color: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+        border: none;
+        transition: all 0.3s ease;
+    }
+
+        .weather-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+        }
+
+    .city-header {
+        padding: 2.5rem 2rem;
+        background: linear-gradient(135deg, #36d1dc 0%, #5b86e5 100%);
+        color: white;
+        position: relative;
+        overflow: hidden;
+    }
+
+        .city-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='rgba(255, 255, 255, 0.1)' fill-opacity='1' d='M0,192L48,181.3C96,171,192,149,288,154.7C384,160,480,192,576,186.7C672,181,768,139,864,138.7C960,139,1056,181,1152,181.3C1248,181,1344,139,1392,117.3L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z'%3E%3C/path%3E%3C/svg%3E") bottom center no-repeat;
+            background-size: cover;
+        }
+
+    .city-header-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: relative;
+        z-index: 10;
+    }
+
+    .city-name {
+        font-weight: 800;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        letter-spacing: 0.5px;
+        font-size: 2.5rem !important;
+    }
+
+    .city-date {
+        opacity: 0.9;
+        font-weight: 500;
+        font-size: 1.1rem !important;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .favorite-button-container {
+        display: flex;
+        align-items: center;
+    }
+
+    .weather-details-container {
+        padding: 2rem;
+    }
+
+    .main-temp-card {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
+        background-color: transparent;
+        padding: 1rem;
+    }
+
+    .main-temp-content {
+        text-align: center;
+        position: relative;
+        padding: 2rem;
+        border-radius: 20px;
+        background: linear-gradient(145deg, #f0f0f0, #ffffff);
+        box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.05), -5px -5px 15px rgba(255, 255, 255, 0.9);
+        transition: all 0.3s ease;
+    }
+
+        .main-temp-content:hover {
+            box-shadow: 8px 8px 20px rgba(0, 0, 0, 0.08), -8px -8px 20px rgba(255, 255, 255, 1);
+        }
+
+    .main-temp {
+        font-size: 5rem !important;
+        font-weight: 800;
+        background: linear-gradient(135deg, #36d1dc 0%, #5b86e5 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-fill-color: transparent;
+        margin-bottom: 0 !important;
+        line-height: 1.1;
+    }
+
+    .temp-unit {
+        font-size: 2.5rem;
+        opacity: 0.7;
+    }
+
+    .temp-label {
+        font-size: 1.2rem;
+        font-weight: 600;
+        opacity: 0.7;
+        text-align: center;
+        margin-top: 0.75rem;
+        color: #5b86e5;
+    }
+
+    .weather-detail-card {
+        text-align: center;
+        padding: 1.75rem 1rem;
+        margin-bottom: 1.25rem;
+        border-radius: 20px !important;
+        background: linear-gradient(145deg, #f0f0f0, #ffffff);
+        box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.05), -5px -5px 15px rgba(255, 255, 255, 0.8);
+        transition: all 0.3s ease;
+        border: none;
+    }
+
+        .weather-detail-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 8px 8px 20px rgba(0, 0, 0, 0.08), -8px -8px 20px rgba(255, 255, 255, 1);
+        }
+
+    .detail-icon {
+        margin-bottom: 0.75rem;
+        color: #5b86e5;
+        font-size: 2rem !important;
+    }
+
+    .detail-label {
+        opacity: 0.7;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .detail-value {
+        font-weight: 700;
+        font-size: 1.5rem !important;
+        background: linear-gradient(135deg, #36d1dc 0%, #5b86e5 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-fill-color: transparent;
+    }
+
+    .actions-container {
+        padding: 0 1.5rem 2rem 1.5rem;
+        text-align: center;
+    }
+
+    .location-button, .forecast-button, .history-button {
+        border-radius: 50px;
+        padding: 0.5rem 1.25rem;
+        font-weight: 600;
+        text-transform: none;
+        letter-spacing: 0.5px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+    }
+
+        .location-button:hover, .forecast-button:hover, .history-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+        }
+
+    .forecast-card {
+        border-radius: 28px !important;
+        overflow: hidden;
+        background-color: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+        border: none;
+        margin-top: 2rem !important;
+        transition: all 0.3s ease;
+    }
+
+        .forecast-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+        }
+
+    .forecast-day-card {
+        text-align: center;
+        padding: 1.5rem 1rem;
+        margin-bottom: 1.25rem;
+        border-radius: 20px !important;
+        background: linear-gradient(145deg, #f0f0f0, #ffffff);
+        box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.05), -5px -5px 15px rgba(255, 255, 255, 0.8);
+        transition: all 0.3s ease;
+        border: none;
+    }
+
+        .forecast-day-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 8px 8px 20px rgba(0, 0, 0, 0.08), -8px -8px 20px rgba(255, 255, 255, 1);
+        }
+
+    .forecast-day {
+        font-weight: 700;
+        color: #5b86e5;
+        margin-bottom: 0.5rem;
+    }
+
+    .forecast-temp-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0.75rem 0;
+    }
+
+    .forecast-temp {
+        font-weight: 800;
+        background: linear-gradient(135deg, #36d1dc 0%, #5b86e5 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        text-fill-color: transparent;
+    }
+
+    .forecast-emoji {
+        font-size: 1.75rem;
+        margin-left: 0.75rem;
+    }
+
+    .forecast-condition {
+        opacity: 0.8;
+        font-weight: 600;
+    }
+
+    .forecast-charts {
+        border-radius: 28px !important;
+        overflow: hidden;
+        background-color: rgba(255, 255, 255, 0.95);
+        border: none;
+        padding: 1.5rem;
+        margin-top: 2rem !important;
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+    }
+
+        .forecast-charts:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+        }
+
+    .mud-chart-title {
+        font-size: 20px;
+        font-weight: 800;
+        fill: #5b86e5;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .mud-chart {
+        background: linear-gradient(to bottom, #f8fafc, #ffffff);
+        border-radius: 16px;
+        padding: 1.5rem;
+        box-shadow: inset 3px 3px 10px rgba(0, 0, 0, 0.03), inset -3px -3px 10px rgba(255, 255, 255, 0.8);
+    }
+
+        .mud-chart:hover {
+            background: linear-gradient(to bottom, #e6f0fa, #f8fafc);
+        }
+
+   
+
+    .weather-detail-card:nth-child(1) {
+        animation: fadeInUp 0.6s ease-out forwards;
+    }
+
+    .weather-detail-card:nth-child(2) {
+        animation: fadeInUp 0.8s ease-out forwards;
+    }
+
+    .weather-detail-card:nth-child(3) {
+        animation: fadeInUp 1s ease-out forwards;
+    }
+
+    /* Enhancing the temperature display */
+    .main-temp::after {
+        content: '°C';
+        font-size: 2.5rem;
+        font-weight: 600;
+        vertical-align: super;
+        margin-left: 0.25rem;
+        opacity: 0.6;
+    }
+
+    /* Add a stylish animated wave for forecast transitions */
+    .forecast-card::before {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 8px;
+        top: 0;
+        left: 0;
+        background: linear-gradient(90deg, #36d1dc, #5b86e5, #36d1dc);
+        background-size: 200% 100%;
+        animation: gradientMove 3s ease infinite;
+        border-radius: 8px 8px 0 0;
+    }
+
+   
+    
+
+    /* Enhancing the buttons */
+    .location-button {
+        background-color: #5b86e5 !important;
+        color: white !important;
+    }
+
+    .forecast-button {
+        background-color: #36d1dc !important;
+        color: white !important;
+    }
+
+    .history-button {
+        background-color: #6c7ae0 !important;
+        color: white !important;
+    }
+</style>
+
+@code {
+    private string searchQuery = "";
+    private WeatherData CurrentWeather { get; set; }
+    private List<SimpleForecast> ForecastWeather { get; set; }
+    private bool IsLoading = false;
+    private string? locationError = null;
+    private bool showForecast = false;
+    private bool isFavorite = false;
+    private bool isProcessing = false;
+    private bool isAuthenticated = false;
+    private string userId = string.Empty;
+    private FavoriteCity existingFavoriteCity;
+    private bool hasShownAlert = false;
+
+    // Thresholds for weather alerts
+    private double highTempThreshold = 40.0;
+    private double lowTempThreshold = 0.0;
+    private double windSpeedThreshold = 60.0;
+    private double humidityThreshold = 90.0;
+
+    // Chart-related properties
+    private List<ChartSeries> temperatureSeries = new();
+    private List<ChartSeries> humiditySeries = new();
+    private List<ChartSeries> combinedSeries = new();
+    private string[] forecastDates = Array.Empty<string>();
+    private ChartOptions temperatureOptions = new ChartOptions
+        {
+            LineStrokeWidth = 3,
+            InterpolationOption = InterpolationOption.NaturalSpline,
+            YAxisTicks = 5
+        };
+    private ChartOptions humidityOptions = new ChartOptions
+        {
+            LineStrokeWidth = 3,
+            InterpolationOption = InterpolationOption.NaturalSpline,
+            YAxisTicks = 5
+        };
+    private ChartOptions combinedOptions = new ChartOptions
+        {
+            LineStrokeWidth = 3,
+            InterpolationOption = InterpolationOption.NaturalSpline,
+            YAxisTicks = 5
+        };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadThresholds();
+        await GetUserIdAsync();
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        if (QueryHelpers.ParseQuery(uri.Query).TryGetValue("city", out var city))
+        {
+            searchQuery = city;
+            await SearchCity();
+        }
+        else
+        {
+            await GetCurrentLocationWeather();
+        }
+    }
+
+    private async Task LoadThresholds()
+    {
+        try
+        {
+            highTempThreshold = await LocalStorage.GetItemAsync<double>("HighTempThreshold") != 0
+                ? await LocalStorage.GetItemAsync<double>("HighTempThreshold")
+                : 40.0;
+            lowTempThreshold = await LocalStorage.GetItemAsync<double>("LowTempThreshold") != 0
+                ? await LocalStorage.GetItemAsync<double>("LowTempThreshold")
+                : 0.0;
+            windSpeedThreshold = await LocalStorage.GetItemAsync<double>("WindSpeedThreshold") != 0
+                ? await LocalStorage.GetItemAsync<double>("WindSpeedThreshold")
+                : 60.0;
+            humidityThreshold = await LocalStorage.GetItemAsync<double>("HumidityThreshold") != 0
+                ? await LocalStorage.GetItemAsync<double>("HumidityThreshold")
+                : 90.0;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading thresholds: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task GetUserIdAsync()
+    {
+        try
+        {
+            var authResponse = await AuthService.CheckAuth();
+            isAuthenticated = authResponse != null;
+            if (isAuthenticated && authResponse != null)
+            {
+                userId = authResponse.Id;
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error getting user information: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SaveSearchToHistory()
+    {
+        if (!isAuthenticated || string.IsNullOrEmpty(userId) || CurrentWeather == null || string.IsNullOrEmpty(CurrentWeather.City))
+            return;
+
+        try
+        {
+            double temp = 0;
+            if (CurrentWeather.Temperature != null)
+            {
+                string tempStr = new string(CurrentWeather.Temperature.Where(c => char.IsDigit(c) || c == '.').ToArray());
+                double.TryParse(tempStr, out temp);
+            }
+
+            var searchHistory = new UserSearchHistory
+                {
+                    UserId = userId,
+                    CityName = CurrentWeather.City,
+                    Temperature = temp,
+                    Humidity = CurrentWeather.Humidity,
+                    WindSpeed = CurrentWeather.WindSpeed,
+                    WeatherCondition = CurrentWeather.Weather,
+                    Timestamp = DateTime.UtcNow
+                };
+
+            await UserHistoryService.AddSearchHistory(searchHistory);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving search history: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void ViewSearchHistory()
+    {
+        if (!isAuthenticated)
+        {
+            Snackbar.Add("Please login to view search history", Severity.Warning);
+            return;
+        }
+        NavigationManager.NavigateTo("/history");
+    }
+
+    private async Task CheckFavoriteStatusAsync()
+    {
+        if (!isAuthenticated || string.IsNullOrEmpty(userId) || CurrentWeather == null || string.IsNullOrEmpty(CurrentWeather.City))
+            return;
+
+        try
+        {
+            isProcessing = true;
+            var favorites = await FavoriteCityService.GetUserFavoriteCitiesAsync(userId);
+            existingFavoriteCity = favorites.FirstOrDefault(c => c.CityName.Equals(CurrentWeather.City, StringComparison.OrdinalIgnoreCase));
+            isFavorite = existingFavoriteCity != null;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error checking favorite status: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetFavoriteIcon() => isFavorite ? Icons.Material.Filled.Favorite : Icons.Material.Outlined.FavoriteBorder;
+    private Color GetFavoriteColor() => isFavorite ? Color.Error : Color.Default;
+
+    private async Task ToggleFavoriteAsync()
+    {
+        if (!isAuthenticated)
+        {
+            Snackbar.Add("Please login to manage favorites", Severity.Warning);
+            return;
+        }
+
+        if (CurrentWeather == null || string.IsNullOrEmpty(CurrentWeather.City))
+            return;
+
+        try
+        {
+            isProcessing = true;
+            if (isFavorite && existingFavoriteCity != null)
+            {
+                await FavoriteCityService.RemoveFromFavoritesAsync(existingFavoriteCity.Id, userId);
+                isFavorite = false;
+                existingFavoriteCity = null;
+                Snackbar.Add($"{CurrentWeather.City} removed from favorites", Severity.Success);
+            }
+            else
+            {
+                existingFavoriteCity = await FavoriteCityService.AddToFavoritesAsync(CurrentWeather.City, userId);
+                isFavorite = true;
+                Snackbar.Add($"{CurrentWeather.City} added to favorites", Severity.Success);
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error updating favorites: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CheckForWeatherAlerts()
+    {
+        if (CurrentWeather == null || hasShownAlert) return;
+
+        hasShownAlert = true;
+
+        double temperature = 0;
+        if (CurrentWeather.Temperature != null)
+        {
+            string tempStr = new string(CurrentWeather.Temperature.Where(c => char.IsDigit(c) || c == '.').ToArray());
+            double.TryParse(tempStr, out temperature);
+        }
+
+        float windSpeed = CurrentWeather.WindSpeed;
+        int humidity = CurrentWeather.Humidity;
+        string weatherCondition = CurrentWeather.Weather?.ToLower() ?? "";
+
+        if (temperature > highTempThreshold)
+        {
+            WeatherAlertService.AddAlert($"⚠️ Extreme Heat Alert in {CurrentWeather.City}! Temperature is {temperature}°C.", Severity.Warning);
+        }
+        else if (temperature < lowTempThreshold)
+        {
+            WeatherAlertService.AddAlert($"⚠️ Extreme Cold Alert in {CurrentWeather.City}! Temperature is {temperature}°C.", Severity.Warning);
+        }
+
+        if (windSpeed > windSpeedThreshold)
+        {
+            WeatherAlertService.AddAlert($"🌬️ High Wind Alert in {CurrentWeather.City}! Wind speed is {windSpeed} km/h.", Severity.Warning);
+        }
+
+        if (weatherCondition.Contains("thunder") || weatherCondition.Contains("storm"))
+        {
+            WeatherAlertService.AddAlert($"⛈️ Thunderstorm Alert in {CurrentWeather.City}!", Severity.Error);
+        }
+        else if (weatherCondition.Contains("rain") && humidity > humidityThreshold)
+        {
+            WeatherAlertService.AddAlert($"☔ Heavy Rain Alert in {CurrentWeather.City}! High humidity ({humidity}%).", Severity.Warning);
+        }
+        else if (weatherCondition.Contains("snow"))
+        {
+            WeatherAlertService.AddAlert($"❄️ Snow Alert in {CurrentWeather.City}!", Severity.Info);
+        }
+    }
+
+    private async Task GetCurrentLocationWeather()
+    {
+        try
+        {
+            IsLoading = true;
+            locationError = null;
+            showForecast = false;
+            hasShownAlert = false;
+            StateHasChanged();
+
+            var location = await JSRuntime.InvokeAsync<GeoLocation>("getCurrentLocation");
+            if (location == null)
+            {
+                locationError = "Unable to retrieve your location. Please enable location services.";
+                return;
+            }
+
+            CurrentWeather = await WeatherService.GetWeatherByCoordinatesAsync(location.Latitude, location.Longitude);
+            if (CurrentWeather == null)
+            {
+                locationError = "Could not fetch weather data for your location.";
+            }
+            else
+            {
+                await CheckFavoriteStatusAsync();
+                await SaveSearchToHistory();
+                CheckForWeatherAlerts();
+            }
+        }
+        catch (Exception ex)
+        {
+            locationError = $"An error occurred: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SearchCity()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery))
+            return;
+
+        IsLoading = true;
+        locationError = null;
+        showForecast = false;
+        hasShownAlert = false;
+        StateHasChanged();
+
+        try
+        {
+            CurrentWeather = await WeatherService.GetCurrentWeatherAsync(searchQuery);
+            if (CurrentWeather == null)
+            {
+                locationError = $"No weather data found for '{searchQuery}'.";
+            }
+            else
+            {
+                await CheckFavoriteStatusAsync();
+                await SaveSearchToHistory();
+                CheckForWeatherAlerts();
+            }
+        }
+        catch (Exception ex)
+        {
+            locationError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ViewForecast()
+    {
+        if (CurrentWeather == null || string.IsNullOrEmpty(CurrentWeather.City))
+            return;
+
+        IsLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            ForecastWeather = await WeatherService.GetWeatherForecastAsync(CurrentWeather.City);
+            if (ForecastWeather != null)
+            {
+                forecastDates = ForecastWeather.Select(f => DateTime.Parse(f.Date).ToString("ddd, MMM d")).ToArray();
+
+                var temperatureData = ForecastWeather.Select(f =>
+                    double.TryParse(new string(f.Temperature.Where(c => char.IsDigit(c) || c == '.').ToArray()), out double temp) ? temp : 0.0
+                ).ToArray();
+
+                var humidityData = ForecastWeather.Select(f => (double)f.Humidity).ToArray();
+
+                temperatureSeries = new List<ChartSeries>
+                {
+                    new ChartSeries { Name = "Temperature", Data = temperatureData }
+                };
+
+                humiditySeries = new List<ChartSeries>
+                {
+                    new ChartSeries { Name = "Humidity", Data = humidityData }
+                };
+
+                combinedSeries = new List<ChartSeries>
+                {
+                    new ChartSeries { Name = "Temperature", Data = temperatureData },
+                    new ChartSeries { Name = "Humidity", Data = humidityData } ,
+                };
+
+                showForecast = true;
+            }
+            else
+            {
+                locationError = "Failed to load forecast.";
+                showForecast = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            locationError = $"Failed to load forecast: {ex.Message}";
+            showForecast = false;
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetWeatherEmoji(string weatherCondition)
+    {
+        if (string.IsNullOrEmpty(weatherCondition))
+            return "🌈";
+
+        weatherCondition = weatherCondition.ToLower();
+        return weatherCondition switch
+        {
+            var w when w.Contains("clear") => "☀️",
+            var w when w.Contains("few clouds") => "🌤️",
+            var w when w.Contains("scattered clouds") => "⛅",
+            var w when w.Contains("broken clouds") || w.Contains("clouds") => "☁️",
+            var w when w.Contains("overcast") => "☁️",
+            var w when w.Contains("mist") || w.Contains("fog") => "🌫️",
+            var w when w.Contains("rain") => "🌧️",
+            var w when w.Contains("thunder") => "⚡",
+            var w when w.Contains("snow") => "❄️",
+            "humidity" => "💧",
+            "temperature" => "🌡️",
+            "wind" => "💨",
+            _ => "🌈"
+        };
+    }
+}
