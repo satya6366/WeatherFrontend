@@ -1,0 +1,231 @@
+﻿@page "/login"
+@layout LoginLayout
+@using MudBlazor
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
+@inject ISnackbar Snackbar
+
+<style>
+    html, body {
+        height: 100%;
+        margin: 0;
+    }
+
+    .page-container {
+        height: 100vh;
+        width: 100vw;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-image: url('images/background.png');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        position: fixed;
+        top: 0;
+        left: 0;
+        margin: 0;
+        overflow: hidden;
+    }
+
+    .form-container {
+        width: 400px;
+        background-color: rgba(255, 255, 255, 0.9);
+        padding: 40px;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .title {
+        font-size: 32px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 4px;
+        text-align: center;
+    }
+
+    .subtitle {
+        color: #666;
+        margin-bottom: 16px;
+        text-align: center;
+    }
+
+    .tabs {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
+    }
+
+    .tab {
+        padding: 8px 16px;
+        cursor: pointer;
+        color: #666;
+    }
+
+        .tab.active {
+            color: #6366F1;
+            border-bottom: 2px solid #6366F1;
+        }
+
+    .input-container {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .login-button {
+        width: 100%;
+        padding: 12px;
+        background-color: #6366F1;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        margin-top: 16px;
+    }
+
+    .forgot-password {
+        text-align: right;
+        width: 100%;
+        margin-top: 4px;
+    }
+
+        .forgot-password a {
+            color: #6366F1;
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+            .forgot-password a:hover {
+                text-decoration: underline;
+            }
+</style>
+
+<div class="page-container">
+    <div class="form-container">
+        <div class="title">Get Started</div>
+        <div class="subtitle">Login into your account</div>
+
+        <div class="tabs">
+            <div class="tab active">Login</div>
+            <div class="tab" @onclick="@(() => Navigation.NavigateTo("/register"))">Sign Up</div>
+        </div>
+
+        <div class="input-container">
+            <MudTextField @bind-Value="email"
+                          Placeholder="Enter your email"
+                          Variant="Variant.Outlined"
+                          FullWidth="true"
+                          Margin="Margin.None"
+                          OnKeyUp="HandleKeyPress" />
+
+            <MudTextField @bind-Value="password"
+                          Placeholder="Enter your password"
+                          Variant="Variant.Outlined"
+                          InputType="@passwordInputType"
+                          FullWidth="true"
+                          Margin="Margin.None"
+                          OnKeyUp="HandleKeyPress"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@passwordIcon"
+                          AdornmentAriaLabel="Show Password"
+                          OnAdornmentClick="TogglePasswordVisibility" />
+
+            <div class="forgot-password">
+                <a href="javascript:void(0)" @onclick="NavigateToForgotPassword"></a>
+            </div>
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <MudText Color="Color.Error">@errorMessage</MudText>
+            }
+
+            <button class="login-button" @onclick="HandleLogin">
+                LOGIN
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string email = "";
+    private string password = "";
+    private string errorMessage = "";
+    private bool passwordVisible = false;
+    private InputType passwordInputType = InputType.Password;
+    private string passwordIcon = Icons.Material.Filled.VisibilityOff;
+
+    private async Task HandleLogin()
+    {
+        try
+        {
+            // Basic email validation
+            if (string.IsNullOrWhiteSpace(email) || !email.Contains("@") || !email.Contains("."))
+            {
+                
+                Snackbar.Add("Please enter a valid email address", Severity.Error);
+                return;
+            }
+
+            // Password validation
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                
+                Snackbar.Add("Please enter your password", Severity.Error);
+                return;
+            }
+
+            var result = await AuthService.Login(email, password);
+            if (result != null)
+            {
+                Snackbar.Add("Login successful! Redirecting...", Severity.Success);
+                Navigation.NavigateTo("/home", forceLoad: true);
+            }
+            else
+            {
+                
+                Snackbar.Add("Invalid credentials", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            
+            Snackbar.Add("Login failed: " + ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await HandleLogin();
+        }
+    }
+
+    private void NavigateToForgotPassword()
+    {
+        Navigation.NavigateTo("/forgot-password");
+    }
+
+    private void TogglePasswordVisibility()
+    {
+        if (passwordVisible)
+        {
+            passwordVisible = false;
+            passwordInputType = InputType.Password;
+            passwordIcon = Icons.Material.Filled.VisibilityOff;
+        }
+        else
+        {
+            passwordVisible = true;
+            passwordInputType = InputType.Text;
+            passwordIcon = Icons.Material.Filled.Visibility;
+        }
+    }
+}
