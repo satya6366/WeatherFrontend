@@ -1,0 +1,157 @@
+﻿@inject AIChatService AIChatService
+@inject IJSRuntime JSRuntime
+
+<div class="chatbot-container @(IsOpen ? "open" : "")">
+    <!-- Toggle Button -->
+    <div class="chatbot-toggle" @onclick="ToggleChat">
+        @if (IsOpen)
+        {
+            <MudIcon Icon="@Icons.Material.Filled.Close" Size="Size.Medium" Class="toggle-icon" />
+        }
+        else
+        {
+            <div class="weather-icon">
+                <MudIcon Icon="@Icons.Material.Filled.WbSunny" Size="Size.Medium" Class="sun-icon" />
+            </div>
+        }
+    </div>
+
+    <!-- Chat Interface -->
+    <div class="chatbot-content">
+        <div class="chat-header">
+            <div class="chat-title">
+                <MudIcon Icon="@Icons.Material.Filled.Cloud" Size="Size.Small" />
+                <span>Weather Assistant</span>
+            </div>
+            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                           Size="Size.Small"
+                           OnClick="ToggleChat"
+                           Class="close-button" />
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+            @foreach (var message in Messages)
+            {
+                <div class="@(message.IsUser ? "user-message" : "bot-message")">
+                    @if (!message.IsUser)
+                    {
+                        <div class="bot-avatar">
+                            <MudIcon Icon="@Icons.Material.Filled.FilterDrama" Size="Size.Small" Color="Color.Inherit" />
+                        </div>
+                    }
+                    <div class="message-content">
+                        @if (message.IsTyping)
+                        {
+                            <div class="typing-indicator">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
+                        }
+                        else
+                        {
+                            @message.Text
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="chat-input">
+            <MudTextField T="string"
+                          @bind-Value="InputMessage"
+                          Placeholder="Ask about the weather..."
+                          Variant="Variant.Outlined"
+                          FullWidth="true"
+                          Immediate="true"
+                          Adornment="Adornment.End"
+                          AdornmentIcon="@Icons.Material.Filled.Send"
+                          OnAdornmentClick="SendMessage"
+                          OnKeyDown="@(e => { if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(InputMessage)) SendMessage(); })" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool IsOpen { get; set; } = false;
+    private string InputMessage { get; set; } = string.Empty;
+    private List<ChatMessage> Messages { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Welcome message with emoji
+        AddMessage("👋 Hello! I'm your weather assistant. Ask me about rain, humidity, or the forecast for any location!", false);
+    }
+
+    private void ToggleChat()
+    {
+        IsOpen = !IsOpen;
+        StateHasChanged();
+
+        if (IsOpen)
+        {
+            // Use JS interop to focus on input field when chat opens
+            _ = Task.Delay(300).ContinueWith(_ =>
+            {
+                JSRuntime.InvokeVoidAsync("focusElement", "chat-input");
+                JSRuntime.InvokeVoidAsync("scrollToBottom", "chat-messages");
+            });
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(InputMessage)) return;
+
+        string userMessage = InputMessage.Trim();
+        AddMessage(userMessage, true);
+
+        // Clear input immediately for better UX
+        InputMessage = string.Empty;
+        StateHasChanged();
+
+        // Show typing indicator
+        var typingMessage = AddTypingMessage();
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("scrollToBottom", "chat-messages");
+
+        // Get real response and replace typing indicator
+        string response = await AIChatService.GetChatResponse(userMessage);
+
+        // Remove typing indicator and add real response
+        Messages.Remove(typingMessage);
+        AddMessage(response, false);
+
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("scrollToBottom", "chat-messages");
+    }
+
+    private void AddMessage(string text, bool isUser)
+    {
+        Messages.Add(new ChatMessage
+            {
+                Text = text,
+                IsUser = isUser,
+                IsTyping = false
+            });
+    }
+
+    private ChatMessage AddTypingMessage()
+    {
+        var message = new ChatMessage
+            {
+                Text = "",
+                IsUser = false,
+                IsTyping = true
+            };
+        Messages.Add(message);
+        return message;
+    }
+
+    public class ChatMessage
+    {
+        public string Text { get; set; }
+        public bool IsUser { get; set; }
+        public bool IsTyping { get; set; }
+    }
+}

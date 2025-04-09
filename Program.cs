@@ -15,7 +15,7 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 builder.Services.AddMudServices();
 builder.Services.AddBlazoredLocalStorage();
-
+builder.Services.AddScoped<AIChatService>();
 
 builder.Services.AddSingleton(sp =>
 {
